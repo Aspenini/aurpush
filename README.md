@@ -90,8 +90,10 @@ aurpush refuses to publish when it detects:
 - a Git repository that is not the AUR package repo (`init` will not mix
   histories)
 
-The package directory **is** the AUR Git working tree. Keep upstream project
-history in a separate repository.
+The package directory **is** the AUR Git working tree and must be the git
+toplevel. Keep upstream project history in a separate repository. `init` in a
+subdirectory of another project creates a nested repository rather than
+adopting the parent.
 
 ## Requirements
 

@@ -162,6 +162,35 @@ TEST(init_new_package_and_publish) {
   fs::remove_all(root);
 }
 
+TEST(init_nested_pkgbuild_does_not_touch_parent) {
+  const auto root = temp_root();
+  git_cmd(root, {"init", "-b", "main"});
+  identity(root);
+  git_cmd(root, {"commit", "--allow-empty", "-m", "parent"});
+
+  const auto pkg = root / "packaging";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+
+  REQUIRE(!aurpush::git::is_repo(pkg));
+  REQUIRE(aurpush::git::is_repo(root));
+
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+
+  REQUIRE(aurpush::git::is_repo(pkg));
+  REQUIRE(fs::exists(pkg / ".git"));
+  REQUIRE(aurpush::file_exists(pkg / ".aurpush"));
+  REQUIRE_EQ(aurpush::git::current_branch(root), "main");
+  REQUIRE(aurpush::git::remotes(root).empty());
+  REQUIRE(aurpush::git::remote_url(pkg, "aur").has_value());
+  fs::remove_all(root);
+}
+
 TEST(init_refuses_foreign_git_repo) {
   const auto root = temp_root();
   write_pkg(root, "sample", "1.0.0", "1");

@@ -39,7 +39,27 @@ ProcessResult git_ok(const std::filesystem::path& dir, const std::vector<std::st
 
 bool is_repo(const std::filesystem::path& dir) {
   auto result = git(dir, {"rev-parse", "--is-inside-work-tree"});
-  return result.ok() && trim(result.out) == "true";
+  if (!result.ok() || trim(result.out) != "true") {
+    return false;
+  }
+  auto top = git(dir, {"rev-parse", "--show-toplevel"});
+  if (!top.ok()) {
+    return false;
+  }
+  const std::string toplevel = trim(top.out);
+  if (toplevel.empty()) {
+    return false;
+  }
+  std::error_code ec;
+  const auto canonical_dir = std::filesystem::weakly_canonical(dir, ec);
+  if (ec) {
+    return false;
+  }
+  const auto canonical_top = std::filesystem::weakly_canonical(toplevel, ec);
+  if (ec) {
+    return false;
+  }
+  return canonical_dir == canonical_top;
 }
 
 void init_master(const std::filesystem::path& dir) {

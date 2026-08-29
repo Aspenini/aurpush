@@ -47,7 +47,7 @@ Srcinfo parse_srcinfo(std::string_view text) {
       info.epoch = value;
     } else if (key == "pkgname") {
       info.pkgnames.push_back(value);
-    } else if (key == "source") {
+    } else if (key == "source" || key.rfind("source_", 0) == 0) {
       info.sources.push_back(value);
     } else if (key == "install") {
       info.install_files.push_back(value);

@@ -57,3 +57,24 @@ TEST(fileset_includes_local_sources_and_skips_urls) {
   REQUIRE(!contains(files, "src/junk.c"));
   fs::remove_all(dir);
 }
+
+TEST(fileset_includes_arch_specific_local_sources) {
+  const auto dir = make_temp_dir();
+  aurpush::write_file(dir / "PKGBUILD", "pkgname=foo\n");
+  aurpush::write_file(dir / ".SRCINFO", "pkgbase = foo\n");
+  aurpush::write_file(dir / "extra.patch", "diff\n");
+
+  auto info = aurpush::parse_srcinfo(
+      "pkgbase = foo\n"
+      "	pkgver = 1\n"
+      "	pkgrel = 1\n"
+      "	source_x86_64 = extra.patch\n"
+      "	source_x86_64 = https://example.com/foo.tar.gz\n"
+      "pkgname = foo\n");
+
+  const auto files = aurpush::aur_file_set(dir, info);
+  REQUIRE(contains(files, "PKGBUILD"));
+  REQUIRE(contains(files, "extra.patch"));
+  REQUIRE(!contains(files, "foo.tar.gz"));
+  fs::remove_all(dir);
+}

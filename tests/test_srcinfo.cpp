@@ -51,6 +51,25 @@ TEST(srcinfo_split_packages) {
   REQUIRE(info.install_files.size() == 2);
 }
 
+TEST(srcinfo_arch_sources) {
+  const auto info = parse_srcinfo(
+      "pkgbase = foo\n"
+      "	pkgver = 1\n"
+      "	pkgrel = 1\n"
+      "	source = common.patch\n"
+      "	source_x86_64 = extra.patch\n"
+      "	source_i686 = https://example.com/i686.tar.gz\n"
+      "pkgname = foo\n");
+  REQUIRE(info.sources.size() == 3);
+  REQUIRE_EQ(info.sources[0], "common.patch");
+  REQUIRE_EQ(info.sources[1], "extra.patch");
+  REQUIRE_EQ(info.sources[2], "https://example.com/i686.tar.gz");
+  REQUIRE(!is_remote_source(info.sources[1]));
+  REQUIRE(is_remote_source(info.sources[2]));
+  REQUIRE_EQ(source_local_path(info.sources[1]), "extra.patch");
+  REQUIRE(source_local_path(info.sources[2]).empty());
+}
+
 TEST(source_remote_detection) {
   REQUIRE(is_remote_source("https://example.com/foo.tar.gz"));
   REQUIRE(is_remote_source("foo.tar.gz::https://example.com/foo.tar.gz"));
