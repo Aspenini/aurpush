@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
         aurpush::print_version(std::cout);
         return 0;
       case aurpush::Command::Status:
-        return aurpush::run_status(aurpush::config_from_env());
+        return aurpush::run_status(aurpush::config_from_env(), opt.check);
       case aurpush::Command::Init:
         return aurpush::run_init(aurpush::config_from_env());
       case aurpush::Command::Publish:

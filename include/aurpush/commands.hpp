@@ -6,7 +6,7 @@
 
 namespace aurpush {
 
-int run_status(const Config& cfg);
+int run_status(const Config& cfg, bool check = false);
 int run_init(const Config& cfg);
 int run_publish(const Config& cfg, const std::string& message);
 

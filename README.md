@@ -12,6 +12,7 @@ short and hard to do accidentally.
 
 ```text
 aurpush              inspect (read-only)
+aurpush --check      inspect; exit 1 if any check failed
 aurpush init         initialize workspace (does not publish)
 aurpush -m "msg"     publish
 ```
@@ -20,12 +21,18 @@ aurpush -m "msg"     publish
 
 ```bash
 aurpush
+aurpush --check
 ```
 
-Never writes, fetches into local refs, or pushes. It reports whether a
-`PKGBUILD` is present, whether this directory is an aurpush workspace, whether
-the matching AUR repository exists, SSH and push access, `.SRCINFO` freshness,
-and unpublished local changes.
+Never writes, fetches into local refs, runs `makepkg`, or pushes. It reports
+whether a `PKGBUILD` is present, whether this directory is an aurpush
+workspace, whether the matching AUR repository exists, SSH and push access,
+`.SRCINFO` freshness (PKGBUILD newer than `.SRCINFO`), and unpublished local
+files by name.
+
+`--check` prints the same report and exits `1` when any check failed (not
+initialized, not connected, SSH failure, no push access, behind or diverged
+remote). Warnings do not fail `--check`.
 
 ### Initialize
 

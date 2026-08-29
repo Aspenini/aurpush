@@ -6,6 +6,7 @@
 #include "aurpush/process.hpp"
 #include "aurpush/util.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <sstream>
@@ -111,6 +112,11 @@ TEST(status_missing_pkgbuild) {
   cfg.skip_ssh = true;
   const auto text = slurp_status(cfg);
   REQUIRE(text.find("not found") != std::string::npos);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_status(cfg, false) == 0);
+    REQUIRE(aurpush::run_status(cfg, true) == 1);
+  }
   fs::remove_all(root);
 }
 
@@ -124,6 +130,10 @@ TEST(status_uninitialized) {
   REQUIRE(text.find("Package: sample") != std::string::npos);
   REQUIRE(text.find("not initialized") != std::string::npos);
   REQUIRE(text.find("aurpush init") != std::string::npos);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_status(cfg, true) == 1);
+  }
   fs::remove_all(root);
 }
 
@@ -153,12 +163,35 @@ TEST(init_new_package_and_publish) {
   const auto text = slurp_status(cfg);
   REQUIRE(text.find("initialized") != std::string::npos);
   REQUIRE(text.find("exists") != std::string::npos);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_status(cfg, true) == 0);
+  }
 
   {
     Mute mute;
     REQUIRE(aurpush::run_publish(cfg, "again") == 0);
   }
 
+  fs::remove_all(root);
+}
+
+TEST(status_lists_unpublished_files) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("unpublished file") != std::string::npos);
+  REQUIRE(text.find("added") != std::string::npos);
+  REQUIRE(text.find("PKGBUILD") != std::string::npos);
+  REQUIRE(!fs::exists(pkg / "src"));
   fs::remove_all(root);
 }
 
@@ -310,16 +343,8 @@ TEST(status_reports_outdated_srcinfo) {
     REQUIRE(aurpush::run_init(cfg) == 0);
   }
 
-  aurpush::write_file(
-      pkg / ".makepkg-srcinfo",
-      "pkgbase = sample\n"
-      "\tpkgver = 9.9.9\n"
-      "\tpkgrel = 1\n"
-      "\tpkgdesc = test package\n"
-      "\tarch = any\n"
-      "\tlicense = MIT\n"
-      "\n"
-      "pkgname = sample\n");
+  const auto src_time = fs::last_write_time(pkg / ".SRCINFO");
+  fs::last_write_time(pkg / "PKGBUILD", src_time + std::chrono::seconds(2));
 
   const auto text = slurp_status(cfg);
   REQUIRE(text.find("outdated") != std::string::npos);

@@ -1,7 +1,6 @@
 #include "aurpush/commands.hpp"
 
 #include "aurpush/colors.hpp"
-#include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
 #include "aurpush/probe.hpp"
 #include "aurpush/srcinfo.hpp"
@@ -70,11 +69,51 @@ void add_relation(StatusState& st, Relation rel) {
   }
 }
 
-std::optional<GeneratedSrcinfo> try_generate(const std::filesystem::path& dir) {
-  try {
-    return generate_srcinfo(dir);
-  } catch (const Error&) {
-    return std::nullopt;
+std::string changes_detail(const TreeDiff& changes) {
+  std::string detail;
+  if (changes.count() == 0) {
+    return "none";
+  }
+  if (changes.count() == 1) {
+    detail = "1 unpublished file";
+  } else {
+    detail = std::to_string(changes.count()) + " unpublished files";
+  }
+  auto append = [&](const char* kind, const std::vector<std::string>& names) {
+    for (const auto& name : names) {
+      detail += "\n  ";
+      detail += kind;
+      detail += name;
+    }
+  };
+  append("added     ", changes.added);
+  append("modified  ", changes.modified);
+  append("deleted   ", changes.deleted);
+  return detail;
+}
+
+void add_srcinfo_freshness(StatusState& st, const std::filesystem::path& dir) {
+  const auto srcinfo = dir / ".SRCINFO";
+  const auto pkgbuild = dir / "PKGBUILD";
+  if (!file_exists(srcinfo)) {
+    add_check(st, ".SRCINFO", CheckKind::Fail, "missing");
+    return;
+  }
+  std::error_code ec;
+  const auto pkg_time = std::filesystem::last_write_time(pkgbuild, ec);
+  if (ec) {
+    add_check(st, ".SRCINFO", CheckKind::Ok, "current");
+    return;
+  }
+  const auto src_time = std::filesystem::last_write_time(srcinfo, ec);
+  if (ec) {
+    add_check(st, ".SRCINFO", CheckKind::Ok, "current");
+    return;
+  }
+  if (pkg_time > src_time) {
+    add_check(st, ".SRCINFO", CheckKind::Warn, "outdated");
+  } else {
+    add_check(st, ".SRCINFO", CheckKind::Ok, "current");
   }
 }
 
@@ -95,9 +134,22 @@ void print_report(const StatusState& st) {
   }
 }
 
+int finish(const StatusState& st, bool check) {
+  print_report(st);
+  if (!check) {
+    return 0;
+  }
+  for (const auto& [label, body] : st.checks) {
+    if (body.first == CheckKind::Fail) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
-int run_status(const Config& cfg) {
+int run_status(const Config& cfg, bool check) {
   StatusState st;
   const auto& dir = cfg.cwd;
   const bool pkgbuild = file_exists(dir / "PKGBUILD");
@@ -105,18 +157,13 @@ int run_status(const Config& cfg) {
   if (!pkgbuild) {
     add_check(st, "PKGBUILD", CheckKind::Fail, "not found");
     add_ssh_and_push(st, check_ssh(cfg), false, false, false);
-    print_report(st);
-    return 0;
+    return finish(st, check);
   }
 
   add_check(st, "PKGBUILD", CheckKind::Ok, "found");
 
-  auto generated = try_generate(dir);
-  auto disk = try_parse_srcinfo_file(dir / ".SRCINFO");
   Srcinfo info;
-  if (generated) {
-    info = generated->parsed;
-  } else if (disk) {
+  if (auto disk = try_parse_srcinfo_file(dir / ".SRCINFO")) {
     info = *disk;
   }
   if (info.valid()) {
@@ -135,8 +182,7 @@ int run_status(const Config& cfg) {
     add_check(st, "AUR repository", CheckKind::Fail, "not connected");
     add_ssh_and_push(st, check_ssh(cfg), false, false, false);
     st.footer = "Run `aurpush init` to initialize this workspace.";
-    print_report(st);
-    return 0;
+    return finish(st, check);
   }
 
   const std::string url = info.valid() ? remote_url_for(cfg, info.pkgbase) : cfg.remote_url;
@@ -165,34 +211,14 @@ int run_status(const Config& cfg) {
     add_ssh_and_push(st, check_ssh(cfg), false, false, false);
   }
 
-  if (!file_exists(dir / ".SRCINFO")) {
-    add_check(st, ".SRCINFO", CheckKind::Fail, "missing");
-  } else if (!generated) {
-    add_check(st, ".SRCINFO", CheckKind::Warn, "cannot verify");
-  } else if (normalize_text(read_file(dir / ".SRCINFO")) == generated->text) {
-    add_check(st, ".SRCINFO", CheckKind::Ok, "current");
-  } else {
-    add_check(st, ".SRCINFO", CheckKind::Warn, "outdated");
-  }
-
-  if (info.valid()) {
-    const auto changes = unpublished_changes(dir, info);
-    if (changes.count() == 0) {
-      add_check(st, "Changes", CheckKind::Plain, "none");
-    } else if (changes.count() == 1) {
-      add_check(st, "Changes", CheckKind::Plain, "1 unpublished file");
-    } else {
-      add_check(st, "Changes", CheckKind::Plain,
-                std::to_string(changes.count()) + " unpublished files");
-    }
-  }
+  add_srcinfo_freshness(st, dir);
+  add_check(st, "Changes", CheckKind::Plain, changes_detail(unpublished_changes(dir, info)));
 
   if (connected && probe.remote_query_ok) {
     add_relation(st, probe.relation);
   }
 
-  print_report(st);
-  return 0;
+  return finish(st, check);
 }
 
 }  // namespace aurpush

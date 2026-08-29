@@ -11,6 +11,7 @@ enum class Command { Status, Init, Publish, Help, Version };
 struct Options {
   Command command = Command::Status;
   std::string message;
+  bool check = false;
 };
 
 Options parse_args(const std::vector<std::string>& args);

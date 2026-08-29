@@ -34,6 +34,32 @@ TEST(cli_message_equals) {
   REQUIRE_EQ(opt.message, "hello");
 }
 
+TEST(cli_check) {
+  auto opt = parse_args({"aurpush", "--check"});
+  REQUIRE(opt.command == Command::Status);
+  REQUIRE(opt.check);
+}
+
+TEST(cli_check_with_init_fails) {
+  bool threw = false;
+  try {
+    parse_args({"aurpush", "init", "--check"});
+  } catch (const aurpush::Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+}
+
+TEST(cli_check_with_message_fails) {
+  bool threw = false;
+  try {
+    parse_args({"aurpush", "--check", "-m", "nope"});
+  } catch (const aurpush::Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+}
+
 TEST(cli_help) {
   auto opt = parse_args({"aurpush", "--help"});
   REQUIRE(opt.command == Command::Help);

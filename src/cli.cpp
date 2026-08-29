@@ -10,6 +10,7 @@ namespace {
 std::string usage_text() {
   return "Usage: aurpush [init]\n"
          "       aurpush -m <message>\n"
+         "       aurpush --check\n"
          "\n"
          "Inspect, initialize, or publish the AUR package in the current directory.\n"
          "\n"
@@ -19,6 +20,7 @@ std::string usage_text() {
          "  -m, --message <msg>    Publish with the given commit message\n"
          "\n"
          "Options:\n"
+         "  --check                Exit non-zero if any status check failed\n"
          "  -h, --help             Show this help\n"
          "  -V, --version          Show version";
 }
@@ -33,6 +35,7 @@ Options parse_args(const std::vector<std::string>& args) {
   Options opt;
   bool saw_init = false;
   bool saw_message = false;
+  bool saw_check = false;
 
   for (std::size_t i = 1; i < args.size(); ++i) {
     const std::string& a = args[i];
@@ -43,6 +46,13 @@ Options parse_args(const std::vector<std::string>& args) {
     if (a == "-V" || a == "--version") {
       opt.command = Command::Version;
       return opt;
+    }
+    if (a == "--check") {
+      if (saw_check) {
+        throw Error("unexpected extra argument: --check");
+      }
+      saw_check = true;
+      continue;
     }
     if (a == "init") {
       if (saw_init) {
@@ -75,6 +85,12 @@ Options parse_args(const std::vector<std::string>& args) {
   if (saw_init && saw_message) {
     throw Error("init and -m cannot be used together");
   }
+  if (saw_check && saw_init) {
+    throw Error("--check cannot be used with init");
+  }
+  if (saw_check && saw_message) {
+    throw Error("--check cannot be used with -m");
+  }
   if (saw_message && opt.message.empty()) {
     throw Error("commit message must not be empty");
   }
@@ -83,6 +99,7 @@ Options parse_args(const std::vector<std::string>& args) {
   } else if (saw_message) {
     opt.command = Command::Publish;
   }
+  opt.check = saw_check;
   return opt;
 }
 
