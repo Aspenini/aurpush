@@ -18,12 +18,11 @@ if [[ -f ../xmake.lua ]]; then
 fi
 
 if [[ -n $_local_tree ]]; then
-  source=('aurpush.desktop')
-  sha256sums=('SKIP')
+  source=()
+  sha256sums=()
 else
-  source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
-          'aurpush.desktop')
-  sha256sums=('SKIP' 'SKIP')
+  source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+  sha256sums=('SKIP')
 fi
 
 prepare() {
@@ -43,5 +42,4 @@ package() {
   cd "$pkgname-$pkgver"
   xmake install -y -P . --root --headers=n --libraries=n -o "$pkgdir/usr" aurpush
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  install -Dm644 "$srcdir/aurpush.desktop" "$pkgdir/usr/share/applications/aurpush.desktop"
 }

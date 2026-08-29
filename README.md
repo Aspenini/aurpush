@@ -121,7 +121,7 @@ xmake test
 
 C++20 and xmake are required. There are no extra C++ library dependencies.
 
-Packaging files live in `packaging/` (Arch `PKGBUILD`, desktop entry, and later other build scripts). Build and install from this tree with:
+Packaging files live in `packaging/` (Arch `PKGBUILD`). Build and install from this tree with:
 
 ```bash
 cd packaging
