@@ -140,6 +140,9 @@ xmake install
 xmake test
 ```
 
+Debug builds (`xmake config -m debug`) link ASan and UBSan into the tests.
+CI on GitHub Actions runs `xmake test` in debug mode.
+
 C++20 and xmake are required. There are no extra C++ library dependencies.
 
 Packaging files live in `packaging/` (Arch `PKGBUILD`). Build and install from this tree with:

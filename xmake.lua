@@ -10,6 +10,11 @@ add_defines('AURPUSH_VERSION="' .. VERSION .. '"')
 set_warnings("allextra")
 add_cxflags("-Wpedantic")
 
+if not is_mode("release") then
+    add_cxflags("-fsanitize=address,undefined", "-fno-omit-frame-pointer")
+    add_ldflags("-fsanitize=address,undefined")
+end
+
 target("aurpush_lib")
     set_kind("static")
     add_files("src/*.cpp|main.cpp")
