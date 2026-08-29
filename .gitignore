@@ -1,0 +1,7 @@
+/.xmake/
+/build/
+*.o
+*.a
+*.so
+.cache/
+compile_commands.json
