@@ -8,16 +8,17 @@ namespace aurpush {
 namespace {
 
 std::string usage_text() {
-  return "Usage: aurpush [init|sync]\n"
+  return "Usage: aurpush [init|sync|install]\n"
          "       aurpush -m <message>\n"
          "       aurpush --check\n"
          "\n"
-         "Inspect, initialize, sync, or publish the AUR package in the current directory.\n"
+         "Inspect, initialize, sync, install, or publish the AUR package in the current directory.\n"
          "\n"
          "Commands:\n"
          "  (no arguments)         Show workspace status (read-only)\n"
          "  init                   Initialize this directory as an AUR workspace\n"
          "  sync                   Fast-forward to the AUR remote (never force)\n"
+         "  install                Build and install locally with makepkg -si\n"
          "  -m, --message <msg>    Publish with the given commit message\n"
          "\n"
          "Options:\n"
@@ -36,6 +37,7 @@ Options parse_args(const std::vector<std::string>& args) {
   Options opt;
   bool saw_init = false;
   bool saw_sync = false;
+  bool saw_install = false;
   bool saw_message = false;
   bool saw_check = false;
 
@@ -70,6 +72,13 @@ Options parse_args(const std::vector<std::string>& args) {
       saw_sync = true;
       continue;
     }
+    if (a == "install") {
+      if (saw_install) {
+        throw Error("unexpected extra argument: install");
+      }
+      saw_install = true;
+      continue;
+    }
     if (a == "-m" || a == "--message") {
       if (i + 1 >= args.size()) {
         throw Error("option " + a + " requires a commit message");
@@ -100,11 +109,23 @@ Options parse_args(const std::vector<std::string>& args) {
   if (saw_init && saw_sync) {
     throw Error("init and sync cannot be used together");
   }
+  if (saw_install && saw_init) {
+    throw Error("install and init cannot be used together");
+  }
+  if (saw_install && saw_sync) {
+    throw Error("install and sync cannot be used together");
+  }
+  if (saw_install && saw_message) {
+    throw Error("install and -m cannot be used together");
+  }
   if (saw_check && saw_init) {
     throw Error("--check cannot be used with init");
   }
   if (saw_check && saw_sync) {
     throw Error("--check cannot be used with sync");
+  }
+  if (saw_check && saw_install) {
+    throw Error("--check cannot be used with install");
   }
   if (saw_check && saw_message) {
     throw Error("--check cannot be used with -m");
@@ -116,6 +137,8 @@ Options parse_args(const std::vector<std::string>& args) {
     opt.command = Command::Init;
   } else if (saw_sync) {
     opt.command = Command::Sync;
+  } else if (saw_install) {
+    opt.command = Command::Install;
   } else if (saw_message) {
     opt.command = Command::Publish;
   }

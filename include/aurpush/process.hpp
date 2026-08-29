@@ -19,4 +19,7 @@ ProcessResult run(const std::vector<std::string>& argv,
                   const std::filesystem::path& cwd = {},
                   const std::vector<std::pair<std::string, std::string>>& env = {});
 
+int run_foreground(const std::vector<std::string>& argv,
+                   const std::filesystem::path& cwd = {});
+
 }  // namespace aurpush

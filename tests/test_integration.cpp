@@ -481,3 +481,29 @@ TEST(sync_refuses_diverged) {
   REQUIRE(threw);
   fs::remove_all(root);
 }
+
+TEST(install_refuses_without_pkgbuild) {
+  const auto root = temp_root();
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  bool threw = false;
+  try {
+    aurpush::run_install(cfg);
+  } catch (const Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+  fs::remove_all(root);
+}
+
+TEST(install_runs_makepkg_with_pkgbuild) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  Mute mute;
+  REQUIRE(aurpush::run_install(cfg) == 0);
+  fs::remove_all(root);
+}

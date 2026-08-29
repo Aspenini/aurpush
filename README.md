@@ -4,9 +4,10 @@ A small native C++ CLI for maintaining and publishing Arch Linux packages to
 the AUR.
 
 The current directory's `PKGBUILD` is the source of truth for package identity
-(`pkgbase`, `pkgver`, `pkgrel`). aurpush does not install packages and is not
-an AUR helper. Its only job is to make the maintainer-side AUR Git workflow
-short and hard to do accidentally.
+(`pkgbase`, `pkgver`, `pkgrel`). aurpush is not an AUR helper: it does not
+search, download, or resolve other AUR packages. `install` only builds the
+PKGBUILD in the current directory with `makepkg` so you can test it locally
+before publishing.
 
 ## Commands
 
@@ -15,6 +16,7 @@ aurpush              inspect (read-only)
 aurpush --check      inspect; exit 1 if any check failed
 aurpush init         initialize workspace (does not publish)
 aurpush sync         fast-forward to the AUR remote
+aurpush install      build and install locally with makepkg -si
 aurpush -m "msg"     publish
 ```
 
@@ -62,6 +64,17 @@ reports that there is nothing to publish instead of creating an empty commit.
 `-m` is the explicit publishing operation. There is no extra prompt and no
 force-push.
 
+### Install
+
+```bash
+aurpush install
+```
+
+Runs `makepkg -si` in the current directory: resolve build dependencies, build
+the package, and install it with pacman. Use this to test a PKGBUILD locally
+before `aurpush -m`. It does not require an initialized workspace, does not
+commit, and does not push to the AUR.
+
 ## Typical workflow
 
 New package:
@@ -71,6 +84,7 @@ cd my-package
 aurpush
 aurpush init
 # work on PKGBUILD
+aurpush install       # optional: test the package locally
 aurpush
 aurpush -m "Initial release"
 ```
@@ -80,6 +94,7 @@ Later update:
 ```bash
 cd my-package
 # edit PKGBUILD
+aurpush install       # optional: test the package locally
 aurpush
 aurpush sync          # if status reports the workspace is behind
 aurpush -m "Update to 1.1.0"

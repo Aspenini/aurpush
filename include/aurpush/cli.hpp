@@ -6,7 +6,7 @@
 
 namespace aurpush {
 
-enum class Command { Status, Init, Sync, Publish, Help, Version };
+enum class Command { Status, Init, Sync, Install, Publish, Help, Version };
 
 struct Options {
   Command command = Command::Status;

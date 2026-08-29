@@ -60,6 +60,22 @@ void drain(int fd, std::string& dest, bool& eof) {
   }
 }
 
+int wait_exit(pid_t pid) {
+  int status = 0;
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) {
+      throw Error(std::string("waitpid failed: ") + std::strerror(errno));
+    }
+  }
+  if (WIFEXITED(status)) {
+    return WEXITSTATUS(status);
+  }
+  if (WIFSIGNALED(status)) {
+    return 128 + WTERMSIG(status);
+  }
+  return -1;
+}
+
 }  // namespace
 
 ProcessResult run(const std::vector<std::string>& argv,
@@ -155,18 +171,37 @@ ProcessResult run(const std::vector<std::string>& argv,
   close_fd(out_pipe[0]);
   close_fd(err_pipe[0]);
 
-  int status = 0;
-  while (waitpid(pid, &status, 0) < 0) {
-    if (errno != EINTR) {
-      throw Error(std::string("waitpid failed: ") + std::strerror(errno));
-    }
-  }
-  if (WIFEXITED(status)) {
-    result.exit_code = WEXITSTATUS(status);
-  } else if (WIFSIGNALED(status)) {
-    result.exit_code = 128 + WTERMSIG(status);
-  }
+  result.exit_code = wait_exit(pid);
   return result;
+}
+
+int run_foreground(const std::vector<std::string>& argv, const std::filesystem::path& cwd) {
+  if (argv.empty()) {
+    throw Error("internal error: empty command");
+  }
+
+  const pid_t pid = fork();
+  if (pid < 0) {
+    throw Error(std::string("fork failed: ") + std::strerror(errno));
+  }
+
+  if (pid == 0) {
+    if (!cwd.empty()) {
+      if (chdir(cwd.c_str()) != 0) {
+        _exit(127);
+      }
+    }
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const auto& a : argv) {
+      cargv.push_back(const_cast<char*>(a.c_str()));
+    }
+    cargv.push_back(nullptr);
+    execvp(cargv[0], cargv.data());
+    _exit(127);
+  }
+
+  return wait_exit(pid);
 }
 
 }  // namespace aurpush

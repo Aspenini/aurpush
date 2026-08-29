@@ -21,6 +21,8 @@ int main(int argc, char** argv) {
         return aurpush::run_init(aurpush::config_from_env());
       case aurpush::Command::Sync:
         return aurpush::run_sync(aurpush::config_from_env());
+      case aurpush::Command::Install:
+        return aurpush::run_install(aurpush::config_from_env());
       case aurpush::Command::Publish:
         return aurpush::run_publish(aurpush::config_from_env(), opt.message);
     }

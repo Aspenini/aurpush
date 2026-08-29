@@ -39,6 +39,21 @@ TEST(cli_sync) {
   REQUIRE(opt.command == Command::Sync);
 }
 
+TEST(cli_install) {
+  auto opt = parse_args({"aurpush", "install"});
+  REQUIRE(opt.command == Command::Install);
+}
+
+TEST(cli_install_and_message_fail) {
+  bool threw = false;
+  try {
+    parse_args({"aurpush", "install", "-m", "nope"});
+  } catch (const aurpush::Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+}
+
 TEST(cli_sync_and_message_fail) {
   bool threw = false;
   try {

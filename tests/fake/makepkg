@@ -1,19 +1,27 @@
 #!/bin/sh
-if [ "$1" != "--printsrcinfo" ]; then
-  echo "fake makepkg: unsupported: $*" >&2
-  exit 1
-fi
 if [ ! -f PKGBUILD ]; then
   echo "PKGBUILD does not exist." >&2
   exit 1
 fi
-if [ -f .makepkg-srcinfo ]; then
-  cat .makepkg-srcinfo
-  exit 0
+if [ "$1" = "--printsrcinfo" ]; then
+  if [ -f .makepkg-srcinfo ]; then
+    cat .makepkg-srcinfo
+    exit 0
+  fi
+  if [ -f .SRCINFO ]; then
+    cat .SRCINFO
+    exit 0
+  fi
+  echo "fake makepkg: no .SRCINFO" >&2
+  exit 1
 fi
-if [ -f .SRCINFO ]; then
-  cat .SRCINFO
-  exit 0
-fi
-echo "fake makepkg: no .SRCINFO" >&2
+for arg in "$@"; do
+  case "$arg" in
+    -si|-i|--install)
+      echo "fake makepkg: installed"
+      exit 0
+      ;;
+  esac
+done
+echo "fake makepkg: unsupported: $*" >&2
 exit 1
