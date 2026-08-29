@@ -52,16 +52,21 @@ SshAuth check_aur_ssh() {
   return auth;
 }
 
-std::vector<std::string> list_aur_repos() {
+AurRepos list_aur_repos() {
+  AurRepos repos;
   const auto result = ssh_aur("list-repos");
-  std::vector<std::string> repos;
   if (!result.ok()) {
+    repos.error = trim(result.err.empty() ? result.out : result.err);
+    if (repos.error.empty()) {
+      repos.error = "failed to list AUR repositories";
+    }
     return repos;
   }
+  repos.ok = true;
   for (const auto& line : split_lines(result.out)) {
     const std::string name = trim(line);
     if (!name.empty() && name[0] != '#') {
-      repos.push_back(name);
+      repos.names.push_back(name);
     }
   }
   return repos;

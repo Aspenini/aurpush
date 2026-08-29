@@ -3,12 +3,11 @@
 #include "aurpush/colors.hpp"
 #include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
+#include "aurpush/probe.hpp"
 #include "aurpush/srcinfo.hpp"
-#include "aurpush/ssh.hpp"
 #include "aurpush/util.hpp"
 #include "aurpush/workspace.hpp"
 
-#include <algorithm>
 #include <iostream>
 #include <optional>
 
@@ -27,14 +26,48 @@ void add_check(StatusState& st, const std::string& label, CheckKind kind,
   st.checks.emplace_back(label, std::make_pair(kind, detail));
 }
 
-SshAuth ssh_status(const Config& cfg) {
-  if (cfg.skip_ssh) {
-    SshAuth auth;
-    auth.ok = true;
-    auth.username = "test";
-    return auth;
+void add_ssh_and_push(StatusState& st, const SshAuth& ssh, bool push_ok, bool push_unknown,
+                      bool report_push) {
+  if (ssh.ok) {
+    add_check(st, "AUR SSH", CheckKind::Ok, "authenticated");
+  } else {
+    add_check(st, "AUR SSH", CheckKind::Fail, "not authenticated");
+    return;
   }
-  return check_aur_ssh();
+  if (!report_push) {
+    return;
+  }
+  if (push_unknown) {
+    add_check(st, "Push access", CheckKind::Warn, "cannot check");
+  } else if (push_ok) {
+    add_check(st, "Push access", CheckKind::Ok, "available");
+  } else {
+    add_check(st, "Push access", CheckKind::Fail, "not available");
+  }
+}
+
+void add_relation(StatusState& st, Relation rel) {
+  switch (rel) {
+    case Relation::Equal:
+      add_check(st, "Remote", CheckKind::Ok, "up to date");
+      break;
+    case Relation::Ahead:
+    case Relation::NoRemote:
+      add_check(st, "Remote", CheckKind::Warn, "unpublished commits");
+      break;
+    case Relation::NoLocal:
+      add_check(st, "Remote", CheckKind::Warn, "behind remote");
+      break;
+    case Relation::Behind:
+      add_check(st, "Remote", CheckKind::Fail, "behind remote");
+      break;
+    case Relation::Diverged:
+      add_check(st, "Remote", CheckKind::Fail, "diverged");
+      break;
+    case Relation::Unknown:
+      add_check(st, "Remote", CheckKind::Warn, "differs from remote");
+      break;
+  }
 }
 
 std::optional<GeneratedSrcinfo> try_generate(const std::filesystem::path& dir) {
@@ -68,15 +101,10 @@ int run_status(const Config& cfg) {
   StatusState st;
   const auto& dir = cfg.cwd;
   const bool pkgbuild = file_exists(dir / "PKGBUILD");
-  const auto ssh = ssh_status(cfg);
 
   if (!pkgbuild) {
     add_check(st, "PKGBUILD", CheckKind::Fail, "not found");
-    if (ssh.ok) {
-      add_check(st, "AUR SSH", CheckKind::Ok, "authenticated");
-    } else {
-      add_check(st, "AUR SSH", CheckKind::Fail, "not authenticated");
-    }
+    add_ssh_and_push(st, check_ssh(cfg), false, false, false);
     print_report(st);
     return 0;
   }
@@ -105,11 +133,7 @@ int run_status(const Config& cfg) {
 
   if (!initialized) {
     add_check(st, "AUR repository", CheckKind::Fail, "not connected");
-    if (ssh.ok) {
-      add_check(st, "AUR SSH", CheckKind::Ok, "authenticated");
-    } else {
-      add_check(st, "AUR SSH", CheckKind::Fail, "not authenticated");
-    }
+    add_ssh_and_push(st, check_ssh(cfg), false, false, false);
     st.footer = "Run `aurpush init` to initialize this workspace.";
     print_report(st);
     return 0;
@@ -125,45 +149,20 @@ int run_status(const Config& cfg) {
     connected = true;
   }
 
-  std::string remote_master;
-  bool remote_query_ok = false;
+  Probe probe;
   if (connected && info.valid()) {
-    try {
-      remote_master = git::ls_remote_master(url);
-      remote_query_ok = true;
-      if (remote_master.empty()) {
-        add_check(st, "AUR repository", CheckKind::Warn, "does not exist yet");
-      } else {
-        add_check(st, "AUR repository", CheckKind::Ok, "exists");
-      }
-    } catch (const Error& e) {
+    probe = probe_aur(cfg, info.pkgbase, url, dir);
+    if (!probe.remote_query_ok) {
       add_check(st, "AUR repository", CheckKind::Warn, "cannot check");
-      (void)e;
+    } else if (probe.remote_master.empty()) {
+      add_check(st, "AUR repository", CheckKind::Warn, "does not exist yet");
+    } else {
+      add_check(st, "AUR repository", CheckKind::Ok, "exists");
     }
+    add_ssh_and_push(st, probe.ssh, probe.push_ok, probe.push_unknown, true);
   } else {
     add_check(st, "AUR repository", CheckKind::Fail, "not connected");
-  }
-
-  if (ssh.ok) {
-    add_check(st, "AUR SSH", CheckKind::Ok, "authenticated");
-    bool push_ok = false;
-    if (cfg.skip_ssh) {
-      push_ok = true;
-    } else if (info.valid()) {
-      if (!remote_query_ok || remote_master.empty()) {
-        push_ok = true;
-      } else {
-        const auto repos = list_aur_repos();
-        push_ok = std::find(repos.begin(), repos.end(), info.pkgbase) != repos.end();
-      }
-    }
-    if (push_ok) {
-      add_check(st, "Push access", CheckKind::Ok, "available");
-    } else {
-      add_check(st, "Push access", CheckKind::Fail, "not available");
-    }
-  } else {
-    add_check(st, "AUR SSH", CheckKind::Fail, "not authenticated");
+    add_ssh_and_push(st, check_ssh(cfg), false, false, false);
   }
 
   if (!file_exists(dir / ".SRCINFO")) {
@@ -188,29 +187,8 @@ int run_status(const Config& cfg) {
     }
   }
 
-  if (connected && remote_query_ok) {
-    const auto local = git::rev_parse(dir, "HEAD");
-    if (!local && remote_master.empty()) {
-      add_check(st, "Remote", CheckKind::Ok, "up to date");
-    } else if (!local && !remote_master.empty()) {
-      add_check(st, "Remote", CheckKind::Warn, "behind remote");
-    } else if (local && remote_master.empty()) {
-      add_check(st, "Remote", CheckKind::Warn, "unpublished commits");
-    } else if (local && *local == remote_master) {
-      add_check(st, "Remote", CheckKind::Ok, "up to date");
-    } else if (local && git::has_object(dir, remote_master)) {
-      const bool local_has_remote = git::is_ancestor(dir, remote_master, *local);
-      const bool remote_has_local = git::is_ancestor(dir, *local, remote_master);
-      if (local_has_remote && !remote_has_local) {
-        add_check(st, "Remote", CheckKind::Warn, "unpublished commits");
-      } else if (remote_has_local && !local_has_remote) {
-        add_check(st, "Remote", CheckKind::Fail, "behind remote");
-      } else {
-        add_check(st, "Remote", CheckKind::Fail, "diverged");
-      }
-    } else {
-      add_check(st, "Remote", CheckKind::Warn, "differs from remote");
-    }
+  if (connected && probe.remote_query_ok) {
+    add_relation(st, probe.relation);
   }
 
   print_report(st);

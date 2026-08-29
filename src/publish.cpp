@@ -3,45 +3,16 @@
 #include "aurpush/colors.hpp"
 #include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
+#include "aurpush/probe.hpp"
 #include "aurpush/srcinfo.hpp"
-#include "aurpush/ssh.hpp"
 #include "aurpush/util.hpp"
 #include "aurpush/workspace.hpp"
 
-#include <algorithm>
 #include <iostream>
 #include <map>
 
 namespace aurpush {
 namespace {
-
-SshAuth require_ssh(const Config& cfg) {
-  if (cfg.skip_ssh) {
-    SshAuth auth;
-    auth.ok = true;
-    auth.username = "test";
-    return auth;
-  }
-  auto auth = check_aur_ssh();
-  if (!auth.ok) {
-    throw Error("AUR SSH authentication failed" +
-                (auth.error.empty() ? "" : ": " + auth.error));
-  }
-  return auth;
-}
-
-void require_push_access(const Config& cfg, const std::string& pkgbase, bool remote_exists) {
-  if (cfg.skip_ssh) {
-    return;
-  }
-  if (!remote_exists) {
-    return;
-  }
-  const auto repos = list_aur_repos();
-  if (std::find(repos.begin(), repos.end(), pkgbase) == repos.end()) {
-    throw Error("no push access to " + pkgbase);
-  }
-}
 
 void require_identity(const std::filesystem::path& dir) {
   if (!git::config(dir, "user.name")) {
@@ -68,27 +39,6 @@ std::string host_label(const std::string& url) {
     return "aur.archlinux.org";
   }
   return url;
-}
-
-enum class Relation { Equal, Ahead, Behind, Diverged, Unknown };
-
-Relation compare_heads(const std::filesystem::path& dir, const std::string& local,
-                       const std::string& remote) {
-  if (local == remote) {
-    return Relation::Equal;
-  }
-  if (!git::has_object(dir, remote)) {
-    return Relation::Unknown;
-  }
-  const bool local_has_remote = git::is_ancestor(dir, remote, local);
-  const bool remote_has_local = git::is_ancestor(dir, local, remote);
-  if (local_has_remote && !remote_has_local) {
-    return Relation::Ahead;
-  }
-  if (remote_has_local && !local_has_remote) {
-    return Relation::Behind;
-  }
-  return Relation::Diverged;
 }
 
 void stage_files(const std::filesystem::path& dir, const Srcinfo& info) {
@@ -137,12 +87,8 @@ int run_publish(const Config& cfg, const std::string& message) {
   git::fetch(dir, kAurRemote);
 
   const std::string url = expected;
-  std::string remote_master;
-  try {
-    remote_master = git::ls_remote_master(url);
-  } catch (const Error&) {
-    remote_master = git::rev_parse(dir, kAurRemote + std::string("/master")).value_or("");
-  }
+  const std::string remote_master =
+      git::rev_parse(dir, kAurRemote + std::string("/master")).value_or("");
 
   require_push_access(cfg, info.pkgbase, !remote_master.empty());
 

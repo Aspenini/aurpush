@@ -11,7 +11,13 @@ struct SshAuth {
   std::string error;
 };
 
+struct AurRepos {
+  bool ok = false;
+  std::vector<std::string> names;
+  std::string error;
+};
+
 SshAuth check_aur_ssh();
-std::vector<std::string> list_aur_repos();
+AurRepos list_aur_repos();
 
 }  // namespace aurpush

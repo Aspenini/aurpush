@@ -2,8 +2,8 @@
 
 #include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
+#include "aurpush/probe.hpp"
 #include "aurpush/srcinfo.hpp"
-#include "aurpush/ssh.hpp"
 #include "aurpush/util.hpp"
 #include "aurpush/workspace.hpp"
 
@@ -13,21 +13,6 @@
 
 namespace aurpush {
 namespace {
-
-SshAuth require_ssh(const Config& cfg) {
-  if (cfg.skip_ssh) {
-    SshAuth auth;
-    auth.ok = true;
-    auth.username = "test";
-    return auth;
-  }
-  auto auth = check_aur_ssh();
-  if (!auth.ok) {
-    throw Error("AUR SSH authentication failed" +
-                (auth.error.empty() ? "" : ": " + auth.error));
-  }
-  return auth;
-}
 
 void preserve_and_checkout(const std::filesystem::path& dir, const std::string& ref) {
   const auto pkgbuild = dir / "PKGBUILD";
