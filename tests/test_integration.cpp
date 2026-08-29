@@ -1,0 +1,298 @@
+#include "test.hpp"
+
+#include "aurpush/commands.hpp"
+#include "aurpush/error.hpp"
+#include "aurpush/git.hpp"
+#include "aurpush/process.hpp"
+#include "aurpush/util.hpp"
+
+#include <filesystem>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <unistd.h>
+
+namespace fs = std::filesystem;
+using aurpush::Config;
+using aurpush::Error;
+using aurpush::run;
+
+namespace {
+
+std::string unique_suffix() {
+  static int n = 0;
+  return std::to_string(getpid()) + "-" + std::to_string(++n);
+}
+
+fs::path temp_root() {
+  auto dir = fs::temp_directory_path() / ("aurpush-itest-" + unique_suffix());
+  fs::create_directories(dir);
+  return dir;
+}
+
+void git_cmd(const fs::path& dir, const std::vector<std::string>& args) {
+  std::vector<std::string> argv{"git"};
+  argv.insert(argv.end(), args.begin(), args.end());
+  auto result = run(argv, dir, {{"GIT_TERMINAL_PROMPT", "0"}});
+  if (!result.ok()) {
+    throw std::runtime_error("git failed: " + result.err + result.out);
+  }
+}
+
+void write_pkg(const fs::path& dir, const std::string& name, const std::string& ver,
+               const std::string& rel, const std::string& extra_source = "") {
+  std::string pb;
+  pb += "pkgname=" + name + "\n";
+  pb += "pkgver=" + ver + "\n";
+  pb += "pkgrel=" + rel + "\n";
+  pb += "pkgdesc='test package'\n";
+  pb += "arch=('any')\n";
+  pb += "license=('MIT')\n";
+  if (!extra_source.empty()) {
+    pb += "source=('" + extra_source + "')\n";
+  }
+  aurpush::write_file(dir / "PKGBUILD", pb);
+
+  std::string si;
+  si += "pkgbase = " + name + "\n";
+  si += "\tpkgver = " + ver + "\n";
+  si += "\tpkgrel = " + rel + "\n";
+  si += "\tpkgdesc = test package\n";
+  si += "\tarch = any\n";
+  si += "\tlicense = MIT\n";
+  if (!extra_source.empty()) {
+    si += "\tsource = " + extra_source + "\n";
+  }
+  si += "\n";
+  si += "pkgname = " + name + "\n";
+  aurpush::write_file(dir / ".SRCINFO", si);
+}
+
+void identity(const fs::path& dir) {
+  git_cmd(dir, {"config", "user.name", "Test User"});
+  git_cmd(dir, {"config", "user.email", "test@example.com"});
+}
+
+fs::path make_bare(const fs::path& root, const std::string& pkgbase) {
+  const auto bare = root / (pkgbase + ".git");
+  fs::create_directories(bare);
+  git_cmd(bare, {"init", "--bare", "-b", "master"});
+  return bare;
+}
+
+Config make_cfg(const fs::path& pkg, const fs::path& bare) {
+  Config cfg;
+  cfg.cwd = pkg;
+  cfg.remote_url = "file://" + bare.string();
+  cfg.skip_ssh = true;
+  return cfg;
+}
+
+struct Mute {
+  std::ostringstream sink;
+  std::streambuf* old;
+  Mute() : old(std::cout.rdbuf(sink.rdbuf())) {}
+  ~Mute() { std::cout.rdbuf(old); }
+  std::string str() const { return sink.str(); }
+};
+
+std::string slurp_status(const Config& cfg) {
+  Mute mute;
+  aurpush::run_status(cfg);
+  return mute.str();
+}
+
+}  // namespace
+
+TEST(status_missing_pkgbuild) {
+  const auto root = temp_root();
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("not found") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(status_uninitialized) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("Package: sample") != std::string::npos);
+  REQUIRE(text.find("not initialized") != std::string::npos);
+  REQUIRE(text.find("aurpush init") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(init_new_package_and_publish) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  const auto cfg = make_cfg(pkg, bare);
+
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  REQUIRE(aurpush::file_exists(pkg / ".aurpush"));
+
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  const auto remote_sha = aurpush::git::ls_remote_master(cfg.remote_url);
+  REQUIRE(!remote_sha.empty());
+
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("initialized") != std::string::npos);
+  REQUIRE(text.find("exists") != std::string::npos);
+
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "again") == 0);
+  }
+
+  fs::remove_all(root);
+}
+
+TEST(init_refuses_foreign_git_repo) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  git_cmd(root, {"init", "-b", "main"});
+  git_cmd(root, {"remote", "add", "origin", "https://github.com/example/sample.git"});
+  identity(root);
+
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  cfg.remote_url = "file://" + (root / "sample.git").string();
+
+  bool threw = false;
+  try {
+    aurpush::run_init(cfg);
+  } catch (const Error& e) {
+    threw = true;
+    REQUIRE(std::string(e.what()).find("mix AUR history") != std::string::npos);
+  }
+  REQUIRE(threw);
+  fs::remove_all(root);
+}
+
+TEST(publish_refuses_uninitialized) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  bool threw = false;
+  try {
+    aurpush::run_publish(cfg, "nope");
+  } catch (const Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+  fs::remove_all(root);
+}
+
+TEST(publish_refuses_when_remote_ahead) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  const auto other = root / "other";
+  git_cmd(root, {"clone", cfg.remote_url, other.string()});
+  identity(other);
+  write_pkg(other, "sample", "1.0.1", "1");
+  git_cmd(other, {"add", "-A"});
+  git_cmd(other, {"commit", "-m", "remote update"});
+  git_cmd(other, {"push", "origin", "HEAD:master"});
+
+  write_pkg(pkg, "sample", "1.0.2", "1");
+  bool threw = false;
+  try {
+    Mute mute;
+    aurpush::run_publish(cfg, "local update");
+  } catch (const Error& e) {
+    threw = true;
+    REQUIRE(std::string(e.what()).find("synchronize") != std::string::npos);
+  }
+  REQUIRE(threw);
+  fs::remove_all(root);
+}
+
+TEST(init_adopts_existing_without_clobbering_pkgbuild) {
+  const auto root = temp_root();
+  const auto donor = root / "donor";
+  fs::create_directories(donor);
+  write_pkg(donor, "sample", "1.0.0", "1");
+  aurpush::write_file(donor / "extra.patch", "patch\n");
+  git_cmd(donor, {"init", "-b", "master"});
+  identity(donor);
+  git_cmd(donor, {"add", "PKGBUILD", ".SRCINFO", "extra.patch"});
+  git_cmd(donor, {"commit", "-m", "upstream"});
+
+  const auto bare = make_bare(root, "sample");
+  git_cmd(donor, {"remote", "add", "origin", "file://" + bare.string()});
+  git_cmd(donor, {"push", "origin", "HEAD:master"});
+
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.1.0", "1");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+
+  const auto pb = aurpush::read_file(pkg / "PKGBUILD");
+  REQUIRE(pb.find("pkgver=1.1.0") != std::string::npos);
+  REQUIRE(aurpush::file_exists(pkg / "extra.patch"));
+  fs::remove_all(root);
+}
+
+TEST(status_reports_outdated_srcinfo) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+
+  aurpush::write_file(
+      pkg / ".makepkg-srcinfo",
+      "pkgbase = sample\n"
+      "\tpkgver = 9.9.9\n"
+      "\tpkgrel = 1\n"
+      "\tpkgdesc = test package\n"
+      "\tarch = any\n"
+      "\tlicense = MIT\n"
+      "\n"
+      "pkgname = sample\n");
+
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("outdated") != std::string::npos);
+  fs::remove_all(root);
+}
