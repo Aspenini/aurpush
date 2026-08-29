@@ -1,5 +1,7 @@
 # aurpush
 
+[![AUR version](https://img.shields.io/aur/version/aurpush)](https://aur.archlinux.org/packages/aurpush)
+
 A small native C++ CLI for maintaining and publishing Arch Linux packages to
 the AUR.
 
