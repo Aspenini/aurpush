@@ -14,6 +14,7 @@ short and hard to do accidentally.
 aurpush              inspect (read-only)
 aurpush --check      inspect; exit 1 if any check failed
 aurpush init         initialize workspace (does not publish)
+aurpush sync         fast-forward to the AUR remote
 aurpush -m "msg"     publish
 ```
 
@@ -80,8 +81,19 @@ Later update:
 cd my-package
 # edit PKGBUILD
 aurpush
+aurpush sync          # if status reports the workspace is behind
 aurpush -m "Update to 1.1.0"
 ```
+
+### Sync
+
+```bash
+aurpush sync
+```
+
+Fetches `aur/master` and fast-forwards the local branch onto it. It never
+force-pushes, rebases, or creates a merge commit. If the histories have
+diverged, it refuses and leaves the tree for you to resolve with git.
 
 ## Safety
 
@@ -93,7 +105,7 @@ aurpush refuses to publish when it detects:
 - a mismatched AUR repository
 - failed SSH authentication
 - missing push permission
-- remote commits that need to be synchronized
+- remote commits that need to be synchronized (`aurpush sync` fast-forwards)
 - a Git repository that is not the AUR package repo (`init` will not mix
   histories)
 

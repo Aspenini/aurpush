@@ -42,6 +42,7 @@ bool index_has_changes(const std::filesystem::path& dir);
 std::vector<std::pair<char, std::string>> cached_changes(const std::filesystem::path& dir);
 
 void commit(const std::filesystem::path& dir, const std::string& message);
+void merge_ff_only(const std::filesystem::path& dir, const std::string& ref);
 void push(const std::filesystem::path& dir, const std::string& remote,
           const std::string& refspec);
 

@@ -18,6 +18,7 @@ bool has_marker(const std::filesystem::path& dir);
 void write_marker(const std::filesystem::path& dir);
 
 void ensure_gitignore(const std::filesystem::path& dir);
+void preserve_pkgbuild_checkout(const std::filesystem::path& dir, const std::string& ref);
 
 bool is_aur_url(std::string_view url, std::string_view pkgbase);
 std::optional<std::string> matching_aur_remote(const std::filesystem::path& dir,

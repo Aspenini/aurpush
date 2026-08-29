@@ -4,6 +4,7 @@
 #include "aurpush/util.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <set>
 
 namespace aurpush {
@@ -90,6 +91,28 @@ bool has_marker(const std::filesystem::path& dir) {
 
 void write_marker(const std::filesystem::path& dir) {
   write_file(dir / kMarkerName, "aurpush workspace\n");
+}
+
+void preserve_pkgbuild_checkout(const std::filesystem::path& dir, const std::string& ref) {
+  const auto pkgbuild = dir / "PKGBUILD";
+  const auto srcinfo = dir / ".SRCINFO";
+  std::optional<std::string> pkg_content;
+  std::optional<std::string> src_content;
+  if (file_exists(pkgbuild)) {
+    pkg_content = read_file(pkgbuild);
+    std::filesystem::remove(pkgbuild);
+  }
+  if (file_exists(srcinfo)) {
+    src_content = read_file(srcinfo);
+    std::filesystem::remove(srcinfo);
+  }
+  git::checkout_ref(dir, ref);
+  if (pkg_content) {
+    write_file(pkgbuild, *pkg_content);
+  }
+  if (src_content) {
+    write_file(srcinfo, *src_content);
+  }
 }
 
 void ensure_gitignore(const std::filesystem::path& dir) {

@@ -98,7 +98,7 @@ int run_publish(const Config& cfg, const std::string& message) {
     if (rel == Relation::Behind || rel == Relation::Diverged || rel == Relation::Unknown) {
       throw Error(
           "the AUR remote has commits not present locally; "
-          "synchronize before publishing");
+          "run `aurpush sync` before publishing");
     }
   }
 
@@ -136,7 +136,7 @@ int run_publish(const Config& cfg, const std::string& message) {
       if (rel != Relation::Ahead) {
         throw Error(
             "the AUR remote has commits not present locally; "
-            "synchronize before publishing");
+            "run `aurpush sync` before publishing");
       }
     }
     std::cout << "No new file changes.\n\n";

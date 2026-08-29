@@ -252,6 +252,10 @@ void commit(const std::filesystem::path& dir, const std::string& message) {
   git_ok(dir, {"commit", "-m", message}, "failed to create commit");
 }
 
+void merge_ff_only(const std::filesystem::path& dir, const std::string& ref) {
+  git_ok(dir, {"merge", "--ff-only", ref}, "failed to fast-forward to " + ref);
+}
+
 void push(const std::filesystem::path& dir, const std::string& remote,
           const std::string& refspec) {
   git_ok(dir, {"push", remote, refspec}, "failed to push to the AUR");

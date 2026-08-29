@@ -9,32 +9,9 @@
 
 #include <filesystem>
 #include <iostream>
-#include <optional>
 
 namespace aurpush {
 namespace {
-
-void preserve_and_checkout(const std::filesystem::path& dir, const std::string& ref) {
-  const auto pkgbuild = dir / "PKGBUILD";
-  const auto srcinfo = dir / ".SRCINFO";
-  std::optional<std::string> pkg_content;
-  std::optional<std::string> src_content;
-  if (file_exists(pkgbuild)) {
-    pkg_content = read_file(pkgbuild);
-    std::filesystem::remove(pkgbuild);
-  }
-  if (file_exists(srcinfo)) {
-    src_content = read_file(srcinfo);
-    std::filesystem::remove(srcinfo);
-  }
-  git::checkout_ref(dir, ref);
-  if (pkg_content) {
-    write_file(pkgbuild, *pkg_content);
-  }
-  if (src_content) {
-    write_file(srcinfo, *src_content);
-  }
-}
 
 void setup_git(const std::filesystem::path& dir, const std::string& url,
                const std::string& pkgbase, const Config& cfg) {
@@ -113,7 +90,7 @@ int run_init(const Config& cfg) {
 
   const auto local_head = git::rev_parse(dir, "HEAD");
   if (!remote_master.empty() && !local_head) {
-    preserve_and_checkout(dir, kAurRemote + std::string("/master"));
+    preserve_pkgbuild_checkout(dir, kAurRemote + std::string("/master"));
   } else if (!remote_master.empty() && local_head && *local_head != remote_master) {
     const bool have_remote = git::has_object(dir, remote_master);
     const bool related =

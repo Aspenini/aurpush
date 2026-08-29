@@ -56,9 +56,11 @@ void add_relation(StatusState& st, Relation rel) {
       break;
     case Relation::NoLocal:
       add_check(st, "Remote", CheckKind::Warn, "behind remote");
+      st.footer = "Run `aurpush sync` to fast-forward.";
       break;
     case Relation::Behind:
       add_check(st, "Remote", CheckKind::Fail, "behind remote");
+      st.footer = "Run `aurpush sync` to fast-forward.";
       break;
     case Relation::Diverged:
       add_check(st, "Remote", CheckKind::Fail, "diverged");

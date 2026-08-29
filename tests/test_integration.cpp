@@ -295,7 +295,7 @@ TEST(publish_refuses_when_remote_ahead) {
     aurpush::run_publish(cfg, "local update");
   } catch (const Error& e) {
     threw = true;
-    REQUIRE(std::string(e.what()).find("synchronize") != std::string::npos);
+    REQUIRE(std::string(e.what()).find("aurpush sync") != std::string::npos);
   }
   REQUIRE(threw);
   fs::remove_all(root);
@@ -348,5 +348,136 @@ TEST(status_reports_outdated_srcinfo) {
 
   const auto text = slurp_status(cfg);
   REQUIRE(text.find("outdated") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(sync_refuses_uninitialized) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  bool threw = false;
+  try {
+    aurpush::run_sync(cfg);
+  } catch (const Error&) {
+    threw = true;
+  }
+  REQUIRE(threw);
+  fs::remove_all(root);
+}
+
+TEST(sync_fast_forwards_when_behind) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  const auto other = root / "other";
+  git_cmd(root, {"clone", cfg.remote_url, other.string()});
+  identity(other);
+  write_pkg(other, "sample", "1.0.1", "1");
+  git_cmd(other, {"add", "-A"});
+  git_cmd(other, {"commit", "-m", "remote update"});
+  git_cmd(other, {"push", "origin", "HEAD:master"});
+
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_sync(cfg) == 0);
+  }
+  const auto remote_sha = aurpush::git::ls_remote_master(cfg.remote_url);
+  const auto local = aurpush::git::rev_parse(pkg, "HEAD");
+  REQUIRE(local.has_value());
+  REQUIRE_EQ(*local, remote_sha);
+
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("up to date") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(sync_noop_when_ahead_or_equal) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+  const auto after_publish = aurpush::git::rev_parse(pkg, "HEAD");
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_sync(cfg) == 0);
+  }
+  REQUIRE_EQ(*aurpush::git::rev_parse(pkg, "HEAD"), *after_publish);
+
+  write_pkg(pkg, "sample", "1.0.1", "1");
+  git_cmd(pkg, {"add", "-A"});
+  git_cmd(pkg, {"commit", "-m", "local only"});
+  const auto ahead = aurpush::git::rev_parse(pkg, "HEAD");
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_sync(cfg) == 0);
+  }
+  REQUIRE_EQ(*aurpush::git::rev_parse(pkg, "HEAD"), *ahead);
+  fs::remove_all(root);
+}
+
+TEST(sync_refuses_diverged) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  const auto other = root / "other";
+  git_cmd(root, {"clone", cfg.remote_url, other.string()});
+  identity(other);
+  write_pkg(other, "sample", "1.0.1", "1");
+  git_cmd(other, {"add", "-A"});
+  git_cmd(other, {"commit", "-m", "remote update"});
+  git_cmd(other, {"push", "origin", "HEAD:master"});
+
+  write_pkg(pkg, "sample", "1.0.2", "1");
+  git_cmd(pkg, {"add", "-A"});
+  git_cmd(pkg, {"commit", "-m", "local update"});
+
+  bool threw = false;
+  try {
+    Mute mute;
+    aurpush::run_sync(cfg);
+  } catch (const Error& e) {
+    threw = true;
+    REQUIRE(std::string(e.what()).find("diverged") != std::string::npos);
+  }
+  REQUIRE(threw);
   fs::remove_all(root);
 }
