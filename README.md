@@ -161,11 +161,6 @@ Debug builds (`xmake config -m debug`) link ASan and UBSan into the tests.
 
 C++20 and xmake are required. There are no extra C++ library dependencies.
 
-Packaging files live in `packaging/` (Arch `PKGBUILD`). Build and install from this tree with:
-
-```bash
-cd packaging
-makepkg -si
-```
-
-The AUR Git working tree stays separate from this repository.
+The AUR package (`aurpush`) is maintained in its own AUR Git repository, not
+this one. Install it from the AUR, or clone
+`ssh://aur@aur.archlinux.org/aurpush.git` and run `makepkg -si` there.
