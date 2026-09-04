@@ -5,168 +5,63 @@
 A small native C++ CLI for maintaining and publishing Arch Linux packages to
 the AUR.
 
-The current directory's `PKGBUILD` is the source of truth for package identity
-(`pkgbase`, `pkgver`, `pkgrel`). aurpush is not an AUR helper: it does not
-search, download, or resolve other AUR packages. `install` only builds the
-PKGBUILD in the current directory with `makepkg` so you can test it locally
-before publishing.
+The current directory's `PKGBUILD` is the source of truth for package identity.
+aurpush is not an AUR helper: it does not search, download, or resolve other
+AUR packages.
 
 ## Commands
 
 ```text
-aurpush              inspect (read-only)
-aurpush --check      inspect; exit 1 if any check failed
-aurpush init         initialize workspace (does not publish)
-aurpush sync         fast-forward to the AUR remote
-aurpush install      build and install locally with makepkg -si
-aurpush -m "msg"     publish
-aurpush -m "msg" --dry-run   report what publishing would do, and stop
+aurpush                      inspect (read-only)
+aurpush --check              inspect; exit 1 if any check failed
+aurpush init                 connect this directory to its AUR repository
+aurpush sync                 fast-forward to the AUR remote
+aurpush install              build and install locally with makepkg -si
+aurpush -m "msg"             publish
+aurpush -m "msg" --dry-run   show what publishing would do, then stop
 ```
 
-Global options: `--no-color` disables coloured output (as does setting
-`NO_COLOR`), `-h`/`--help`, and `-V`/`--version`.
+Options: `--no-color` (or set `NO_COLOR`), `-h`/`--help`, `-V`/`--version`.
+One command per invocation — combining two is an error, as is passing `-m`
+twice. Arguments after `--` go to `makepkg`, e.g.
+`aurpush install -- --noconfirm`.
 
-Exactly one command runs per invocation; combining two is an error rather than
-a silent preference, and so is passing `-m` twice.
-
-### Inspect
-
-```bash
-aurpush
-aurpush --check
-```
-
-Never writes, fetches into local refs, runs `makepkg`, or pushes. It reports
-whether a `PKGBUILD` is present, whether this directory is an aurpush
-workspace, whether the matching AUR repository exists, SSH and push access,
-`.SRCINFO` freshness (PKGBUILD newer than `.SRCINFO`), and unpublished local
-files by name.
-
-`--check` prints the same report and exits `1` when any check failed (not
-initialized, not connected, SSH failure, no push access, behind or diverged
-remote). Warnings do not fail `--check`.
-
-### Initialize
-
-```bash
-aurpush init
-```
-
-Reads the `PKGBUILD`, checks AUR SSH access, connects the directory to
-`ssh://aur@aur.archlinux.org/<pkgbase>.git`, generates `.SRCINFO` if needed,
-and writes a local `.aurpush` marker. Existing AUR packages are fetched;
-brand-new packages are prepared so the first `aurpush -m` can create the
-initial commit.
-
-`init` never publishes.
-
-### Publish
-
-```bash
-aurpush -m "Update to 1.2.0"
-```
-
-Regenerates `.SRCINFO`, synchronizes with the AUR remote, commits the packaging
-files with the given message, and pushes to the AUR. If nothing changed, it
-reports that there is nothing to publish instead of creating an empty commit.
-
-`-m` is the explicit publishing operation. There is no extra prompt and no
-force-push.
-
-To see the plan without acting on it:
-
-```bash
-aurpush -m "Update to 1.2.0" --dry-run
-```
-
-`--dry-run` reports the package version, the files that would be added,
-modified, or deleted, and where the push would go. It writes nothing, commits
-nothing, and pushes nothing — not even the regenerated `.SRCINFO`.
-
-### Install
-
-```bash
-aurpush install
-```
-
-Runs `makepkg -si` in the current directory: resolve build dependencies, build
-the package, and install it with pacman. Use this to test a PKGBUILD locally
-before `aurpush -m`. It does not require an initialized workspace, does not
-commit, and does not push to the AUR.
-
-Anything after `--` is forwarded verbatim to `makepkg`:
-
-```bash
-aurpush install -- --noconfirm --needed
-```
-
-## Typical workflow
-
-New package:
+## Workflow
 
 ```bash
 cd my-package
-aurpush
-aurpush init
-# work on PKGBUILD
-aurpush install       # optional: test the package locally
-aurpush
-aurpush -m "Initial release"
-```
-
-Later update:
-
-```bash
-cd my-package
+aurpush init          # once per package
 # edit PKGBUILD
-aurpush install       # optional: test the package locally
-aurpush
-aurpush sync          # if status reports the workspace is behind
-aurpush -m "Update to 1.1.0" --dry-run   # optional: review the plan
+aurpush install       # optional: test the build locally
+aurpush               # review status
+aurpush sync          # if status says the workspace is behind
 aurpush -m "Update to 1.1.0"
 ```
 
-### Sync
-
-```bash
-aurpush sync
-```
-
-Fetches `aur/master` and fast-forwards the local branch onto it. It never
-force-pushes, rebases, or creates a merge commit. If the histories have
-diverged, it refuses and leaves the tree for you to resolve with git.
+Publishing regenerates `.SRCINFO`, commits the packaging files, and pushes.
+If nothing changed it says so rather than creating an empty commit.
 
 ## Safety
 
-aurpush refuses to publish when it detects:
+aurpush never force-pushes, rebases, or creates merge commits, and it refuses
+to publish on a missing `PKGBUILD`, invalid metadata, an uninitialized
+workspace, a mismatched AUR repository, an SSH or push-access failure, or a
+remote that has commits you do not have. Diverged histories are left for you
+to resolve with git.
 
-- no `PKGBUILD`
-- invalid package metadata / `.SRCINFO` generation failure
-- an uninitialized workspace
-- a mismatched AUR repository
-- failed SSH authentication
-- missing push permission
-- remote commits that need to be synchronized (`aurpush sync` fast-forwards)
-- a Git repository that is not the AUR package repo (`init` will not mix
-  histories)
+Inspection is genuinely read-only: it never writes, fetches into local refs,
+runs `makepkg`, or pushes. `--check` exits `1` when a check *fails*; warnings
+do not.
 
 The package directory **is** the AUR Git working tree and must be the git
-toplevel. Keep upstream project history in a separate repository. `init` in a
-subdirectory of another project creates a nested repository rather than
-adopting the parent.
+toplevel. Keep upstream project history in a separate repository — running
+`init` inside another project creates a nested repository rather than adopting
+the parent.
 
 ## Requirements
 
-- `git`
-- `openssh`
-- `makepkg` (from `pacman`)
-- An AUR account with an SSH key configured for `aur.archlinux.org`
-
-Each command checks for the programs it needs before doing any work and names
-every one that is missing at once. Network calls to `aur.archlinux.org` are
-bounded by a timeout, so an unreachable host fails instead of hanging.
-
-Example `~/.ssh/config` snippet:
+`git`, `openssh`, `makepkg`, and an AUR account with an SSH key. Each command
+checks for the programs it needs up front and names any that are missing.
 
 ```sshconfig
 Host aur.archlinux.org
@@ -177,20 +72,12 @@ Host aur.archlinux.org
 ## Build
 
 ```bash
-xmake
-xmake install
-```
-
-```bash
+xmake && xmake install
 xmake test
 ```
 
-Debug builds (`xmake config -m debug`) link ASan and UBSan into the tests.
-`xmake f --werror=y` turns compiler warnings into errors; it is off by default
-so a newer compiler's fresh diagnostics cannot break the build.
+C++20 and xmake are required; there are no other dependencies. Debug builds
+link ASan and UBSan into the tests, and `xmake f --werror=y` turns warnings
+into errors.
 
-C++20 and xmake are required. There are no extra C++ library dependencies.
-
-The AUR package (`aurpush`) is maintained in its own AUR Git repository, not
-this one. Install it from the AUR, or clone
-`ssh://aur@aur.archlinux.org/aurpush.git` and run `makepkg -si` there.
+The `aurpush` AUR package lives in its own AUR Git repository, not this one.
