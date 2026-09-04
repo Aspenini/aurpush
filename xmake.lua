@@ -1,4 +1,4 @@
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 
 set_project("aurpush")
 set_version(VERSION)
