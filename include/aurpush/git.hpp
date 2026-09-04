@@ -32,6 +32,12 @@ std::vector<std::string> tracked_files(const std::filesystem::path& dir);
 std::optional<std::string> show_file(const std::filesystem::path& dir,
                                      const std::string& rev, const std::string& file);
 
+// Files whose working-tree content differs from `rev`, in one call. Respects
+// .gitattributes filters, so line-ending normalization is not reported as a
+// change the way a raw byte comparison would.
+std::vector<std::string> worktree_diff_names(const std::filesystem::path& dir,
+                                             const std::string& rev);
+
 void checkout_ref(const std::filesystem::path& dir, const std::string& ref);
 void ensure_master_branch(const std::filesystem::path& dir);
 

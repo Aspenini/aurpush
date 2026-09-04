@@ -1,4 +1,5 @@
 #include "aurpush/cli.hpp"
+#include "aurpush/colors.hpp"
 #include "aurpush/commands.hpp"
 #include "aurpush/config.hpp"
 #include "aurpush/error.hpp"
@@ -8,6 +9,9 @@
 int main(int argc, char** argv) {
   try {
     const auto opt = aurpush::parse_args(argc, argv);
+    if (opt.no_color) {
+      aurpush::disable_color();
+    }
     switch (opt.command) {
       case aurpush::Command::Help:
         aurpush::print_help(std::cout);
@@ -22,15 +26,19 @@ int main(int argc, char** argv) {
       case aurpush::Command::Sync:
         return aurpush::run_sync(aurpush::config_from_env());
       case aurpush::Command::Install:
-        return aurpush::run_install(aurpush::config_from_env());
+        return aurpush::run_install(aurpush::config_from_env(), opt.makepkg_args);
       case aurpush::Command::Publish:
-        return aurpush::run_publish(aurpush::config_from_env(), opt.message);
+        return aurpush::run_publish(aurpush::config_from_env(), opt.message, opt.dry_run);
     }
+    return 0;
   } catch (const aurpush::Error& e) {
     std::cerr << "error: " << e.what() << '\n';
     return e.code();
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
+    return 2;
+  } catch (...) {
+    std::cerr << "error: unknown failure\n";
     return 2;
   }
 }

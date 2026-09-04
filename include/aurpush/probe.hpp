@@ -7,6 +7,7 @@
 
 #include "aurpush/config.hpp"
 #include "aurpush/ssh.hpp"
+#include "aurpush/workspace.hpp"
 
 namespace aurpush {
 
@@ -32,6 +33,6 @@ Relation compare_heads(const std::filesystem::path& dir,
                        const std::string& remote_master);
 
 Probe probe_aur(const Config& cfg, std::string_view pkgbase, const std::string& url,
-                const std::filesystem::path& dir);
+                const Workspace& ws);
 
 }  // namespace aurpush

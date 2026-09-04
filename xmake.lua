@@ -7,8 +7,22 @@ set_languages("c++20")
 add_rules("mode.debug", "mode.release")
 add_includedirs("include", {public = true})
 add_defines('AURPUSH_VERSION="' .. VERSION .. '"')
+
 set_warnings("allextra")
-add_cxflags("-Wpedantic")
+add_cxflags("-Wpedantic", "-Wshadow", "-Wold-style-cast", "-Wnon-virtual-dtor",
+            "-Wdouble-promotion", "-Wformat=2", {tools = {"gcc", "clang"}})
+
+-- Opt in with `xmake f --werror=y`; kept off by default so a newer compiler's
+-- fresh diagnostics cannot break someone's build.
+option("werror")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Treat compiler warnings as errors")
+option_end()
+
+if has_config("werror") then
+    add_cxflags("-Werror")
+end
 
 if not is_mode("release") then
     add_cxflags("-fsanitize=address,undefined", "-fno-omit-frame-pointer")

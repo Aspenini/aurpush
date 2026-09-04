@@ -1,18 +1,16 @@
 #include "aurpush/config.hpp"
 
 #include "aurpush/error.hpp"
+#include "aurpush/util.hpp"
 
-#include <cstdlib>
 #include <filesystem>
 
 namespace aurpush {
 namespace {
 
 std::string strip_git_suffix(std::string s) {
-  constexpr std::string_view suffix = ".git";
-  if (s.size() >= suffix.size() &&
-      s.compare(s.size() - suffix.size(), suffix.size(), suffix.data()) == 0) {
-    s.resize(s.size() - suffix.size());
+  if (s.ends_with(".git")) {
+    s.resize(s.size() - 4);
   }
   return s;
 }
@@ -22,13 +20,11 @@ std::string strip_git_suffix(std::string s) {
 Config config_from_env() {
   Config cfg;
   cfg.cwd = std::filesystem::current_path();
-  if (const char* url = std::getenv("AURPUSH_REMOTE_URL")) {
-    if (*url) {
-      cfg.remote_url = url;
-    }
+  if (const auto url = env_var("AURPUSH_REMOTE_URL")) {
+    cfg.remote_url = *url;
   }
-  if (const char* skip = std::getenv("AURPUSH_SKIP_SSH")) {
-    cfg.skip_ssh = skip[0] != '\0' && skip[0] != '0';
+  if (const auto skip = env_var("AURPUSH_SKIP_SSH")) {
+    cfg.skip_ssh = *skip != "0";
   }
   return cfg;
 }

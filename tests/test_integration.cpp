@@ -507,3 +507,136 @@ TEST(install_runs_makepkg_with_pkgbuild) {
   REQUIRE(aurpush::run_install(cfg) == 0);
   fs::remove_all(root);
 }
+
+// A workspace whose .SRCINFO is missing used to report "not connected", because
+// every remote check hung off a parsed .SRCINFO. The remote itself names the
+// pkgbase, so the report stays accurate.
+TEST(status_without_srcinfo_still_sees_the_remote) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  const auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  fs::remove(pkg / ".SRCINFO");
+  const auto text = slurp_status(cfg);
+  REQUIRE(text.find("not connected") == std::string::npos);
+  REQUIRE(text.find("missing") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(status_reports_modified_files_as_modified) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1", "extra.patch");
+  aurpush::write_file(pkg / "extra.patch", "original\n");
+  const auto bare = make_bare(root, "sample");
+  const auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+
+  const auto clean = slurp_status(cfg);
+  REQUIRE(clean.find("Changes         none") != std::string::npos);
+
+  aurpush::write_file(pkg / "extra.patch", "changed\n");
+  const auto dirty = slurp_status(cfg);
+  REQUIRE(dirty.find("modified  extra.patch") != std::string::npos);
+  REQUIRE(dirty.find("added     extra.patch") == std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(publish_dry_run_changes_nothing) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  const auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+
+  std::string report;
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Would be released", true) == 0);
+    report = mute.str();
+  }
+  REQUIRE(report.find("Dry run") != std::string::npos);
+  REQUIRE(report.find("Would be released") != std::string::npos);
+  REQUIRE(report.find("PKGBUILD") != std::string::npos);
+
+  // Nothing committed, and nothing pushed.
+  REQUIRE(!aurpush::git::rev_parse(pkg, "HEAD").has_value());
+  REQUIRE(aurpush::git::ls_remote_master(cfg.remote_url).empty());
+
+  // And a real publish still works afterwards.
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+  REQUIRE(!aurpush::git::ls_remote_master(cfg.remote_url).empty());
+  fs::remove_all(root);
+}
+
+TEST(publish_dry_run_after_publishing_reports_no_changes) {
+  const auto root = temp_root();
+  const auto pkg = root / "pkg";
+  fs::create_directories(pkg);
+  write_pkg(pkg, "sample", "1.0.0", "1");
+  const auto bare = make_bare(root, "sample");
+  const auto cfg = make_cfg(pkg, bare);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_init(cfg) == 0);
+  }
+  identity(pkg);
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "Initial release") == 0);
+  }
+  std::string report;
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_publish(cfg, "nothing new", true) == 0);
+    report = mute.str();
+  }
+  REQUIRE(report.find("No file changes to publish") != std::string::npos);
+  fs::remove_all(root);
+}
+
+TEST(install_forwards_extra_arguments_to_makepkg) {
+  const auto root = temp_root();
+  write_pkg(root, "sample", "1.0.0", "1");
+  Config cfg;
+  cfg.cwd = root;
+  cfg.skip_ssh = true;
+  std::string report;
+  {
+    Mute mute;
+    REQUIRE(aurpush::run_install(cfg, {"--noconfirm"}) == 0);
+    report = mute.str();
+  }
+  REQUIRE(report.find("makepkg -si --noconfirm") != std::string::npos);
+  fs::remove_all(root);
+}

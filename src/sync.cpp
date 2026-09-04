@@ -3,6 +3,7 @@
 #include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
 #include "aurpush/probe.hpp"
+#include "aurpush/process.hpp"
 #include "aurpush/srcinfo.hpp"
 #include "aurpush/util.hpp"
 #include "aurpush/workspace.hpp"
@@ -10,19 +11,17 @@
 #include <iostream>
 
 namespace aurpush {
-namespace {
-
-const char* kDiverged =
-    "local history has diverged from the AUR remote; resolve this manually";
-
-}  // namespace
 
 int run_sync(const Config& cfg) {
-  const auto& dir = cfg.cwd;
+  require_tools(cfg.skip_ssh ? std::vector<std::string>{"git"}
+                             : std::vector<std::string>{"git", "ssh"});
+
+  const Workspace ws(cfg.cwd);
+  const auto& dir = ws.dir();
   if (!file_exists(dir / "PKGBUILD")) {
     throw Error("no PKGBUILD in the current directory");
   }
-  if (!has_marker(dir) || !git::is_repo(dir)) {
+  if (!ws.is_initialized()) {
     throw Error("not an aurpush workspace; run `aurpush init` first");
   }
 
@@ -54,16 +53,13 @@ int run_sync(const Config& cfg) {
   const std::string remote_ref = kAurRemote + std::string("/master");
   const auto remote = git::rev_parse(dir, remote_ref);
   const auto local = git::rev_parse(dir, "HEAD");
-  const auto rel = compare_heads(dir, local, remote.value_or(""));
 
-  switch (rel) {
+  switch (compare_heads(dir, local, remote.value_or(""))) {
     case Relation::NoRemote:
+      std::cout << "AUR repository does not exist yet.\n";
+      return 0;
     case Relation::Equal:
-      if (!remote) {
-        std::cout << "AUR repository does not exist yet.\n";
-      } else {
-        std::cout << "Already up to date.\n";
-      }
+      std::cout << (remote ? "Already up to date.\n" : "AUR repository does not exist yet.\n");
       return 0;
     case Relation::Ahead:
       std::cout << "Local is ahead of AUR; nothing to sync.\n";
@@ -77,8 +73,13 @@ int run_sync(const Config& cfg) {
       std::cout << "Fast-forwarded to " << remote_ref << ".\n";
       return 0;
     case Relation::Diverged:
+      throw Error("local history has diverged from the AUR remote; resolve this manually");
     case Relation::Unknown:
-      throw Error(kDiverged);
+      // Distinct from divergence: the remote commit is not in this repository at
+      // all, so git cannot say how the two histories relate.
+      throw Error("the AUR commit " + remote.value_or("(unknown)").substr(0, 12) +
+                  " is not present locally; run `git fetch " + kAurRemote +
+                  "` and resolve this manually");
   }
   return 0;
 }

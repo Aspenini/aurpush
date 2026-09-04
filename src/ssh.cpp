@@ -3,63 +3,85 @@
 #include "aurpush/process.hpp"
 #include "aurpush/util.hpp"
 
-#include <regex>
+#include <cctype>
+#include <chrono>
+#include <string_view>
 
 namespace aurpush {
 namespace {
 
+// The AUR endpoint answers in well under a second; anything longer is a stall.
+constexpr std::chrono::seconds kSshTimeout{20};
+
+constexpr std::string_view kWelcome = "welcome to aur,";
+
 ProcessResult ssh_aur(const std::string& command) {
-  return run({
-      "ssh",
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "ConnectTimeout=10",
-      "aur@aur.archlinux.org",
-      command,
-  });
+  ProcessOptions opts;
+  opts.timeout = kSshTimeout;
+  return run(
+      {
+          "ssh",
+          "-o",
+          "BatchMode=yes",
+          "-o",
+          "ConnectTimeout=10",
+          "aur@aur.archlinux.org",
+          command,
+      },
+      opts);
 }
 
-}  // namespace
+std::string lower(std::string s) {
+  for (char& c : s) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return s;
+}
 
-SshAuth check_aur_ssh() {
+std::string failure_reason(const ProcessResult& result, const char* fallback) {
+  if (result.timed_out) {
+    return "timed out talking to aur.archlinux.org";
+  }
+  const std::string err = trim(result.err.empty() ? result.out : result.err);
+  return err.empty() ? fallback : err;
+}
+
+SshAuth query_ssh() {
   SshAuth auth;
   const auto result = ssh_aur("help");
   if (!result.ok()) {
-    auth.error = trim(result.err.empty() ? result.out : result.err);
-    if (auth.error.empty()) {
-      auth.error = "SSH authentication to aur.archlinux.org failed";
-    }
+    auth.error = failure_reason(result, "SSH authentication to aur.archlinux.org failed");
     return auth;
   }
-  const std::regex welcome(R"(Welcome to AUR,\s*(.+?)(?:!|\s*$))",
-                           std::regex::icase);
-  std::smatch match;
-  const std::string text = result.out.empty() ? result.err : result.out;
+  auth.ok = true;
+  auth.username = "unknown";
+  // The banner is "Welcome to AUR, <user>!" -- worth parsing for the greeting,
+  // but a successful exit already proves the key was accepted.
+  const std::string& text = result.out.empty() ? result.err : result.out;
   for (const auto& line : split_lines(text)) {
-    if (std::regex_search(line, match, welcome)) {
-      auth.ok = true;
-      auth.username = trim(match[1].str());
-      return auth;
+    const std::string haystack = lower(line);
+    const auto at = haystack.find(kWelcome);
+    if (at == std::string::npos) {
+      continue;
     }
+    std::string name = trim(line.substr(at + kWelcome.size()));
+    if (!name.empty() && name.back() == '!') {
+      name.pop_back();
+    }
+    name = trim(name);
+    if (!name.empty()) {
+      auth.username = name;
+    }
+    break;
   }
-  if (result.ok()) {
-    auth.ok = true;
-    auth.username = "unknown";
-    return auth;
-  }
-  auth.error = "unexpected response from aur.archlinux.org";
   return auth;
 }
 
-AurRepos list_aur_repos() {
+AurRepos query_repos() {
   AurRepos repos;
   const auto result = ssh_aur("list-repos");
   if (!result.ok()) {
-    repos.error = trim(result.err.empty() ? result.out : result.err);
-    if (repos.error.empty()) {
-      repos.error = "failed to list AUR repositories";
-    }
+    repos.error = failure_reason(result, "failed to list AUR repositories");
     return repos;
   }
   repos.ok = true;
@@ -69,6 +91,20 @@ AurRepos list_aur_repos() {
       repos.names.push_back(name);
     }
   }
+  return repos;
+}
+
+}  // namespace
+
+// Both answers are stable for the lifetime of one command, and each costs a
+// network round trip, so they are probed at most once per run.
+const SshAuth& check_aur_ssh() {
+  static const SshAuth auth = query_ssh();
+  return auth;
+}
+
+const AurRepos& list_aur_repos() {
+  static const AurRepos repos = query_repos();
   return repos;
 }
 

@@ -30,7 +30,7 @@ void require_push_access(const Config& cfg, const std::string& pkgbase, bool rem
   if (cfg.skip_ssh || !remote_exists) {
     return;
   }
-  const auto repos = list_aur_repos();
+  const auto& repos = list_aur_repos();
   if (!repos.ok) {
     throw Error("could not verify push access" +
                 (repos.error.empty() ? "" : ": " + repos.error));
@@ -75,7 +75,8 @@ Relation compare_heads(const std::filesystem::path& dir,
 }
 
 Probe probe_aur(const Config& cfg, std::string_view pkgbase, const std::string& url,
-                const std::filesystem::path& dir) {
+                const Workspace& ws) {
+  const auto& dir = ws.dir();
   Probe p;
   try {
     p.remote_master = git::ls_remote_master(url);
@@ -89,7 +90,7 @@ Probe probe_aur(const Config& cfg, std::string_view pkgbase, const std::string& 
     p.ssh.username = "test";
     p.push_ok = true;
   } else if (p.remote_query_ok && !p.remote_master.empty()) {
-    const auto repos = list_aur_repos();
+    const auto& repos = list_aur_repos();
     if (repos.ok) {
       p.ssh.ok = true;
       p.ssh.username = "unknown";
@@ -104,7 +105,7 @@ Probe probe_aur(const Config& cfg, std::string_view pkgbase, const std::string& 
     p.push_ok = p.ssh.ok;
   }
 
-  const auto local = git::is_repo(dir) ? git::rev_parse(dir, "HEAD") : std::nullopt;
+  const auto local = ws.is_repo() ? git::rev_parse(dir, "HEAD") : std::nullopt;
   if (p.remote_query_ok) {
     p.relation = compare_heads(dir, local, p.remote_master);
   }

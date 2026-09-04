@@ -20,7 +20,14 @@ aurpush init         initialize workspace (does not publish)
 aurpush sync         fast-forward to the AUR remote
 aurpush install      build and install locally with makepkg -si
 aurpush -m "msg"     publish
+aurpush -m "msg" --dry-run   report what publishing would do, and stop
 ```
+
+Global options: `--no-color` disables coloured output (as does setting
+`NO_COLOR`), `-h`/`--help`, and `-V`/`--version`.
+
+Exactly one command runs per invocation; combining two is an error rather than
+a silent preference, and so is passing `-m` twice.
 
 ### Inspect
 
@@ -66,6 +73,16 @@ reports that there is nothing to publish instead of creating an empty commit.
 `-m` is the explicit publishing operation. There is no extra prompt and no
 force-push.
 
+To see the plan without acting on it:
+
+```bash
+aurpush -m "Update to 1.2.0" --dry-run
+```
+
+`--dry-run` reports the package version, the files that would be added,
+modified, or deleted, and where the push would go. It writes nothing, commits
+nothing, and pushes nothing — not even the regenerated `.SRCINFO`.
+
 ### Install
 
 ```bash
@@ -76,6 +93,12 @@ Runs `makepkg -si` in the current directory: resolve build dependencies, build
 the package, and install it with pacman. Use this to test a PKGBUILD locally
 before `aurpush -m`. It does not require an initialized workspace, does not
 commit, and does not push to the AUR.
+
+Anything after `--` is forwarded verbatim to `makepkg`:
+
+```bash
+aurpush install -- --noconfirm --needed
+```
 
 ## Typical workflow
 
@@ -99,6 +122,7 @@ cd my-package
 aurpush install       # optional: test the package locally
 aurpush
 aurpush sync          # if status reports the workspace is behind
+aurpush -m "Update to 1.1.0" --dry-run   # optional: review the plan
 aurpush -m "Update to 1.1.0"
 ```
 
@@ -138,6 +162,10 @@ adopting the parent.
 - `makepkg` (from `pacman`)
 - An AUR account with an SSH key configured for `aur.archlinux.org`
 
+Each command checks for the programs it needs before doing any work and names
+every one that is missing at once. Network calls to `aur.archlinux.org` are
+bounded by a timeout, so an unreachable host fails instead of hanging.
+
 Example `~/.ssh/config` snippet:
 
 ```sshconfig
@@ -158,6 +186,8 @@ xmake test
 ```
 
 Debug builds (`xmake config -m debug`) link ASan and UBSan into the tests.
+`xmake f --werror=y` turns compiler warnings into errors; it is off by default
+so a newer compiler's fresh diagnostics cannot break the build.
 
 C++20 and xmake are required. There are no extra C++ library dependencies.
 

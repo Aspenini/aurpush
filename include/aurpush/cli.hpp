@@ -12,6 +12,10 @@ struct Options {
   Command command = Command::Status;
   std::string message;
   bool check = false;
+  bool dry_run = false;
+  bool no_color = false;
+  // Arguments after `--`, forwarded verbatim to makepkg by `install`.
+  std::vector<std::string> makepkg_args;
 };
 
 Options parse_args(const std::vector<std::string>& args);

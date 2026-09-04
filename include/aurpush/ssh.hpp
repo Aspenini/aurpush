@@ -17,7 +17,8 @@ struct AurRepos {
   std::string error;
 };
 
-SshAuth check_aur_ssh();
-AurRepos list_aur_repos();
+// Cached for the lifetime of the process: each is one network round trip.
+const SshAuth& check_aur_ssh();
+const AurRepos& list_aur_repos();
 
 }  // namespace aurpush

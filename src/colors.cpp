@@ -6,18 +6,34 @@
 #include <sstream>
 
 namespace aurpush {
+namespace {
 
-Glyphs glyphs() {
+bool g_forced_off = false;
+
+bool color_allowed() {
+  if (g_forced_off) {
+    return false;
+  }
+  // https://no-color.org: any non-empty value opts out.
+  if (env_var("NO_COLOR")) {
+    return false;
+  }
+  if (const auto term = env_var("TERM"); term && *term == "dumb") {
+    return false;
+  }
+  return stdout_is_tty();
+}
+
+Glyphs compute() {
   Glyphs g;
-  const bool tty = stdout_is_tty();
-  const bool utf8 = looks_like_utf8_locale();
-  if (tty) {
+  const bool color = color_allowed();
+  if (color) {
     g.green = "\033[32m";
     g.red = "\033[31m";
     g.yellow = "\033[33m";
     g.reset = "\033[0m";
   }
-  if (tty && utf8) {
+  if (color && looks_like_utf8_locale()) {
     g.ok = "✓";
     g.fail = "✗";
     g.warn = "!";
@@ -25,9 +41,18 @@ Glyphs glyphs() {
   return g;
 }
 
+}  // namespace
+
+void disable_color() { g_forced_off = true; }
+
+const Glyphs& glyphs() {
+  static const Glyphs g = compute();
+  return g;
+}
+
 std::string format_check(const std::string& label, CheckKind kind,
                          const std::string& detail) {
-  const Glyphs g = glyphs();
+  const Glyphs& g = glyphs();
   std::ostringstream ss;
   ss << std::left << std::setw(16) << label;
   switch (kind) {

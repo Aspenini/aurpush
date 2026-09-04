@@ -1,0 +1,8 @@
+# Matches the style already used throughout the tree.
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 90
+DerivePointerAlignment: false
+PointerAlignment: Left
+IncludeBlocks: Preserve
+AllowShortFunctionsOnASingleLine: Inline

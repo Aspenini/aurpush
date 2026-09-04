@@ -3,6 +3,7 @@
 #include "aurpush/error.hpp"
 #include "aurpush/git.hpp"
 #include "aurpush/probe.hpp"
+#include "aurpush/process.hpp"
 #include "aurpush/srcinfo.hpp"
 #include "aurpush/util.hpp"
 #include "aurpush/workspace.hpp"
@@ -13,25 +14,26 @@
 namespace aurpush {
 namespace {
 
-void setup_git(const std::filesystem::path& dir, const std::string& url,
-               const std::string& pkgbase, const Config& cfg) {
-  if (!git::is_repo(dir)) {
+[[noreturn]] void refuse_foreign_repo(const std::string& url) {
+  throw Error("this directory is already a Git repository for " + url +
+              "; aurpush will not mix AUR history with another project");
+}
+
+void setup_git(Workspace& ws, const std::string& url, const std::string& pkgbase,
+               const Config& cfg) {
+  const auto& dir = ws.dir();
+  if (!ws.is_repo()) {
     git::init_master(dir);
     git::remote_add(dir, kAurRemote, url);
+    ws.refresh();
     return;
   }
 
   git::ensure_master_branch(dir);
 
   const auto remotes = git::remotes(dir);
-  if (!remotes.empty()) {
-    const auto match = matching_aur_remote(dir, pkgbase, cfg);
-    if (!match) {
-      std::string found = remotes.front().second;
-      throw Error(
-          "this directory is already a Git repository for " + found +
-          "; aurpush will not mix AUR history with another project");
-    }
+  if (!remotes.empty() && !matching_aur_remote(ws, pkgbase, cfg)) {
+    refuse_foreign_repo(remotes.front().second);
   }
 
   if (auto existing = git::remote_url(dir, kAurRemote)) {
@@ -49,7 +51,11 @@ void setup_git(const std::filesystem::path& dir, const std::string& url,
 }  // namespace
 
 int run_init(const Config& cfg) {
-  const auto& dir = cfg.cwd;
+  require_tools(cfg.skip_ssh ? std::vector<std::string>{"git", "makepkg"}
+                             : std::vector<std::string>{"git", "ssh", "makepkg"});
+
+  Workspace ws(cfg.cwd);
+  const auto& dir = ws.dir();
   if (!file_exists(dir / "PKGBUILD")) {
     throw Error("no PKGBUILD in the current directory");
   }
@@ -65,12 +71,12 @@ int run_init(const Config& cfg) {
   const auto& info = generated.parsed;
   const std::string url = remote_url_for(cfg, info.pkgbase);
 
-  if (git::is_repo(dir) && !git::remotes(dir).empty() &&
-      !matching_aur_remote(dir, info.pkgbase, cfg)) {
+  // Refuse before touching SSH or the network, so a wrong directory fails fast.
+  if (ws.is_repo()) {
     const auto remotes = git::remotes(dir);
-    throw Error(
-        "this directory is already a Git repository for " + remotes.front().second +
-        "; aurpush will not mix AUR history with another project");
+    if (!remotes.empty() && !matching_aur_remote(ws, info.pkgbase, cfg)) {
+      refuse_foreign_repo(remotes.front().second);
+    }
   }
 
   const auto auth = require_ssh(cfg);
@@ -84,9 +90,10 @@ int run_init(const Config& cfg) {
     throw Error("failed to query the AUR repository at " + url);
   }
 
-  setup_git(dir, url, info.pkgbase, cfg);
+  setup_git(ws, url, info.pkgbase, cfg);
 
   git::fetch(dir, kAurRemote);
+  ws.refresh();
 
   const auto local_head = git::rev_parse(dir, "HEAD");
   if (!remote_master.empty() && !local_head) {

@@ -4,21 +4,55 @@
 #include "aurpush/process.hpp"
 #include "aurpush/util.hpp"
 
+#include <chrono>
 #include <sstream>
+#include <string_view>
 
 namespace aurpush::git {
 namespace {
 
-const std::vector<std::pair<std::string, std::string>> kGitEnv = {
-    {"GIT_TERMINAL_PROMPT", "0"},
-};
+// Network calls get a ceiling so a black-holed connection fails instead of
+// hanging forever; local calls return in milliseconds and need none.
+constexpr std::chrono::seconds kNetworkTimeout{60};
 
-ProcessResult git(const std::filesystem::path& dir, const std::vector<std::string>& args) {
+// Function-local to avoid a namespace-scope object with a runtime constructor.
+const std::vector<std::pair<std::string, std::string>>& git_env() {
+  static const std::vector<std::pair<std::string, std::string>> env = {
+      // Never stop for credential input: there is no one at the keyboard when
+      // output is being captured.
+      {"GIT_TERMINAL_PROMPT", "0"},
+      {"GIT_ASKPASS", ""},
+      {"GCM_INTERACTIVE", "never"},
+  };
+  return env;
+}
+
+std::vector<std::string> git_argv(const std::vector<std::string>& args) {
   std::vector<std::string> argv;
   argv.reserve(args.size() + 1);
   argv.emplace_back("git");
   argv.insert(argv.end(), args.begin(), args.end());
-  return run(argv, dir, kGitEnv);
+  return argv;
+}
+
+ProcessResult git(const std::filesystem::path& dir, const std::vector<std::string>& args) {
+  return run(git_argv(args), dir, git_env());
+}
+
+ProcessResult git_network(const std::filesystem::path& dir,
+                          const std::vector<std::string>& args) {
+  ProcessOptions opts;
+  opts.cwd = dir;
+  opts.env = git_env();
+  opts.timeout = kNetworkTimeout;
+  return run(git_argv(args), opts);
+}
+
+std::string result_error(const ProcessResult& result) {
+  if (result.timed_out) {
+    return "timed out";
+  }
+  return trim(result.err.empty() ? result.out : result.err);
 }
 
 ProcessResult git_ok(const std::filesystem::path& dir, const std::vector<std::string>& args,
@@ -26,13 +60,23 @@ ProcessResult git_ok(const std::filesystem::path& dir, const std::vector<std::st
   auto result = git(dir, args);
   if (!result.ok()) {
     std::string msg = what;
-    const std::string err = trim(result.err.empty() ? result.out : result.err);
+    const std::string err = result_error(result);
     if (!err.empty()) {
       msg += ": " + err;
     }
     throw Error(msg, 2);
   }
   return result;
+}
+
+std::vector<std::string> nonempty_lines(std::string_view text) {
+  std::vector<std::string> out;
+  for (const auto& line : split_lines(text)) {
+    if (!line.empty()) {
+      out.push_back(line);
+    }
+  }
+  return out;
 }
 
 }  // namespace
@@ -118,11 +162,11 @@ void remote_set_url(const std::filesystem::path& dir, const std::string& name,
 }
 
 void fetch(const std::filesystem::path& dir, const std::string& remote) {
-  auto result = git(dir, {"fetch", "--prune", remote});
+  auto result = git_network(dir, {"fetch", "--prune", remote});
   if (result.ok()) {
     return;
   }
-  const std::string err = trim(result.err.empty() ? result.out : result.err);
+  const std::string err = result_error(result);
   if (err.find("couldn't find remote ref") != std::string::npos ||
       err.find("no such ref") != std::string::npos ||
       err.find("empty repository") != std::string::npos) {
@@ -132,9 +176,9 @@ void fetch(const std::filesystem::path& dir, const std::string& remote) {
 }
 
 std::string ls_remote_master(const std::string& url) {
-  auto result = run({"git", "ls-remote", url, "refs/heads/master"}, {}, kGitEnv);
+  auto result = git_network({}, {"ls-remote", url, "refs/heads/master"});
   if (!result.ok()) {
-    const std::string err = trim(result.err.empty() ? result.out : result.err);
+    const std::string err = result_error(result);
     throw Error("failed to query AUR repository" + (err.empty() ? "" : ": " + err), 2);
   }
   const std::string line = trim(result.out);
@@ -174,13 +218,17 @@ std::vector<std::string> tracked_files(const std::filesystem::path& dir) {
   }
   auto result = git_ok(dir, {"ls-tree", "-r", "--name-only", "HEAD"},
                        "failed to list tracked files");
-  std::vector<std::string> files;
-  for (const auto& line : split_lines(result.out)) {
-    if (!line.empty()) {
-      files.push_back(line);
-    }
+  return nonempty_lines(result.out);
+}
+
+std::vector<std::string> worktree_diff_names(const std::filesystem::path& dir,
+                                             const std::string& rev) {
+  if (!rev_parse(dir, rev)) {
+    return {};
   }
-  return files;
+  auto result = git_ok(dir, {"diff", "--name-only", "--no-renames", rev},
+                       "failed to compare the working tree with " + rev);
+  return nonempty_lines(result.out);
 }
 
 std::optional<std::string> show_file(const std::filesystem::path& dir,
@@ -258,7 +306,11 @@ void merge_ff_only(const std::filesystem::path& dir, const std::string& ref) {
 
 void push(const std::filesystem::path& dir, const std::string& remote,
           const std::string& refspec) {
-  git_ok(dir, {"push", remote, refspec}, "failed to push to the AUR");
+  auto result = git_network(dir, {"push", remote, refspec});
+  if (!result.ok()) {
+    const std::string err = result_error(result);
+    throw Error("failed to push to the AUR" + (err.empty() ? "" : ": " + err), 2);
+  }
 }
 
 std::optional<std::string> config(const std::filesystem::path& dir, const std::string& key) {
